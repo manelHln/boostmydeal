@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "laravel-boost": {
+            "command": "wsl.exe",
+            "args": [
+                "/home/datgeek_manu/.config/herd-lite/bin/php",
+                "/home/datgeek_manu/Repos/boostmydeal_rebrand/dashboard_backend/artisan",
+                "boost:mcp"
+            ]
+        }
+    }
+}
