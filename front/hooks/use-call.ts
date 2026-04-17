@@ -10,7 +10,7 @@ import type { Call, PaginatedRequest, InitiateCallRequest } from "../lib/types"
 export const useCalls = (params?: PaginatedRequest) => {
   return useQuery({
     queryKey: queryKey.Calls.all(params?.page || 1),
-    queryFn: () => api.get("/calls", { ...params }),
+    queryFn: () => api.get("/calls", { params }),
   })
 }
 

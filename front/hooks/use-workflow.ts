@@ -10,7 +10,7 @@ import type { Workflow, PaginatedRequest } from "../lib/types"
 export const useWorkflows = (params?: PaginatedRequest) => {
   return useQuery({
     queryKey: queryKey.WorkFlows.list(params?.page || 1),
-    queryFn: () => api.get("/workflows", { ...params }),
+    queryFn: () => api.get("/workflows", { params }),
   })
 }
 

@@ -1,65 +1,47 @@
 "use client"
 
-import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { z } from "zod"
 import { Logo } from "@/components/ui/logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Spinner } from "@/components/ui/spinner"
-import { api } from "@/lib/api/api"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { useSendOtp } from "@/hooks/use-auth"
 import { Mail, ArrowRight, AlertCircle } from "lucide-react"
+
+const loginSchema = z.object({
+  email: z.string().min(1, "Please enter your email address").email("Please enter a valid email address"),
+})
+
+type LoginFormValues = z.infer<typeof loginSchema>
 
 export default function LoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const sendOtp = useSendOtp()
 
-  const isValidEmail = (email: string) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-  }
+  const form = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: "" },
+  })
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-
-    if (!email.trim()) {
-      setError("Please enter your email address")
-      return
-    }
-
-    if (!isValidEmail(email)) {
-      setError("Please enter a valid email address")
-      return
-    }
-
-    setIsLoading(true)
-
-    try {
-      const response = await api.sendOtp(email)
-
-      if (response.success) {
-        // Store email in sessionStorage for the OTP page
-        sessionStorage.setItem("auth_email", email)
+  const onSubmit = (values: LoginFormValues) => {
+    sendOtp.mutate(values.email, {
+      onSuccess: () => {
+        sessionStorage.setItem("auth_email", values.email)
         router.push("/verify-otp")
-      } else {
-        setError(response.error?.message || "Failed to send verification code. Please try again.")
-      }
-    } catch {
-      setError("An unexpected error occurred. Please try again.")
-    } finally {
-      setIsLoading(false)
-    }
+      },
+    })
   }
 
   return (
     <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="flex justify-center mb-8">
           <Logo size="lg" />
         </div>
@@ -73,50 +55,63 @@ export default function LoginPage() {
           </CardHeader>
 
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <Alert variant="destructive" className="py-2">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="email">Email address</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="name@company.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10"
-                    autoComplete="email"
-                    autoFocus
-                    disabled={isLoading}
-                  />
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full bg-primary hover:bg-primary/90"
-                disabled={isLoading || !email.trim()}
-              >
-                {isLoading ? (
-                  <>
-                    <Spinner className="mr-2 h-4 w-4" />
-                    Sending code...
-                  </>
-                ) : (
-                  <>
-                    Continue
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                {sendOtp.isError && (
+                  <Alert variant="destructive" className="py-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      {sendOtp.error instanceof Error
+                        ? sendOtp.error.message
+                        : "Failed to send verification code. Please try again."}
+                    </AlertDescription>
+                  </Alert>
                 )}
-              </Button>
-            </form>
+
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email address</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            type="email"
+                            placeholder="name@company.com"
+                            className="pl-10"
+                            autoComplete="email"
+                            autoFocus
+                            disabled={sendOtp.isPending}
+                            {...field}
+                          />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <Button
+                  type="submit"
+                  className="w-full bg-primary hover:bg-primary/90"
+                  disabled={sendOtp.isPending}
+                >
+                  {sendOtp.isPending ? (
+                    <>
+                      <Spinner className="mr-2 h-4 w-4" />
+                      Sending code...
+                    </>
+                  ) : (
+                    <>
+                      Continue
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              </form>
+            </Form>
           </CardContent>
 
           <CardFooter className="flex flex-col gap-4 pt-2">

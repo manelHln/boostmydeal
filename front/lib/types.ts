@@ -18,6 +18,25 @@ export interface LoginResponse {
   }
 }
 
+export interface Tenant {
+  id: string
+  name: string
+  slug: string
+}
+
+export interface VerifyOtpResponse {
+  tenants: Tenant[]
+}
+
+export interface SignupResponse {
+  id: number
+  name: string
+  slug: string
+  email: string
+}
+
+
+
 
 export interface User {
   id: string
@@ -80,7 +99,7 @@ export interface OnboardingData {
   }
   // Step 3: Workflow
   workflow: {
-    triggers: WorkflowTrigger[]
+    triggers: WorkflowTriggerType[]
     automationRules: AutomationRule[]
   }
   // Step 4: AI Agent
@@ -92,7 +111,7 @@ export interface OnboardingData {
     gender?: "male" | "female" | "neutral"
     voiceProvider?: string
     voiceModel?: string
-    tone: ?string
+    tone?: string
     openingMessage?: string
     systemPrompt?: string
     temperature?: number

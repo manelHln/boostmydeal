@@ -1,7 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "../lib/api-client"
 import { queryKey } from "../lib/query-keys"
-import type { AuthResponse, User, Organization, LoginResponse } from "../lib/types"
+import type { LoginResponse, VerifyOtpResponse, SignupResponse } from "../lib/types"
+
+
 
 // ============================================
 // Authentication Services
@@ -23,7 +25,7 @@ export const useLogin = () => {
       }),
     onSuccess: (data) => {
       localStorage.setItem("accessToken", data.accessToken);
-      localStorage.setItem("tenentId", data.tenant.id);
+      localStorage.setItem("tenantId", data.tenant.id);
     },
   })
 }
@@ -40,7 +42,7 @@ export const useSignup = () => {
       last_Name: string;
       phone?: string;
       website?: string;
-    }) => api.post("/signup", data),
+    }) => api.post<SignupResponse>("/tenants/register ", data),
   })
 }
 
@@ -48,14 +50,14 @@ export const useSignup = () => {
 
 export const useSendOtp = () => {
   return useMutation({
-    mutationFn: (email: string) => api.post("/tenants/signup.checkEmail", { email }),
+    mutationFn: (email: string) => api.post("/tenants/checkEmail", { email }),
   })
 }
 
 export const useVerifyOtp = () => {
   return useMutation({
     mutationFn: (data: { email: string; otp: string }) =>
-      api.post("tenants/signup.verifyOtp", data),
+      api.post<VerifyOtpResponse>("/tenants/verifyOtp", data),
   })
 }
 

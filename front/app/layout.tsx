@@ -6,6 +6,7 @@ import "./globals.css"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { queryClient } from "@/lib/query-client"
 import { Toaster } from "@/components/ui/sonner"
+import { Providers } from "./provider"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -38,14 +39,17 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider defaultTheme="light" storageKey="boostmydeal-theme">
-          <QueryClientProvider client={queryClient}>
+          <Providers>
+
             {children}
             <Toaster />
-          </QueryClientProvider>
+          </Providers>
         </ThemeProvider>
       </body>
     </html>

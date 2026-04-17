@@ -1,190 +1,115 @@
 "use client"
 
-import * as React from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { z } from "zod"
 import { Eye, EyeOff, Loader2, CheckCircle2, XCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Logo } from "@/components/ui/logo"
-import { api } from "@/lib/api/api"
-
-interface FormData {
-  organizationName: string
-  organizationSlug: string
-  firstName: string
-  lastName: string
-  email: string
-  password: string
-  phone: string
-  website: string
-}
-
-interface FormErrors {
-  organizationName?: string
-  organizationSlug?: string
-  firstName?: string
-  lastName?: string
-  email?: string
-  password?: string
-  phone?: string
-  website?: string
-}
-
-interface PasswordValidation {
-  minLength: boolean
-  hasNumber: boolean
-  hasSpecial: boolean
-}
+import { useSignup, useSendOtp } from "@/hooks/use-auth"
 
 function generateSlug(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "") // Remove special chars except spaces and hyphens
-    .replace(/\s+/g, "-") // Replace spaces with hyphens
-    .replace(/-+/g, "-") // Replace multiple hyphens with single
-    .replace(/^-|-$/g, "") // Remove leading/trailing hyphens
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
 }
 
-function validateEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailRegex.test(email)
-}
+const signupSchema = z.object({
+  organizationName: z.string().min(1, "Organization name is required"),
+  organizationSlug: z
+    .string()
+    .min(1, "Organization slug is required")
+    .regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  email: z.string().min(1, "Email is required").email("Please enter a valid email address"),
+  password: z
+    .string()
+    .min(6, "At least 6 characters")
+    .regex(/\d/, "At least 1 number")
+    .regex(/[!@#$%^&*(),.?":{}]/, 'At least 1 special character (!@#$%^&*(),.?":{}|<>)'),
+  phone: z.string().optional(),
+  website: z.string().optional(),
+})
 
-function validatePassword(password: string): PasswordValidation {
-  return {
+type SignupFormValues = z.infer<typeof signupSchema>
+
+export default function SignupPage() {
+  const router = useRouter()
+  const [showPassword, setShowPassword] = useState(false)
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
+
+  const signup = useSignup()
+  const sendOtp = useSendOtp()
+
+  const form = useForm<SignupFormValues>({
+    resolver: zodResolver(signupSchema),
+    defaultValues: {
+      organizationName: "",
+      organizationSlug: "",
+      firstName: "",
+      lastName: "",
+      email: "",
+      password: "",
+      phone: "",
+      website: "",
+    },
+  })
+
+  const password = form.watch("password")
+  const passwordValidation = {
     minLength: password.length >= 6,
     hasNumber: /\d/.test(password),
     hasSpecial: /[!@#$%^&*(),.?":{}]/.test(password),
   }
-}
 
-export default function SignupPage() {
-  const router = useRouter()
-  const [formData, setFormData] = React.useState<FormData>({
-    organizationName: "",
-    organizationSlug: "",
-    firstName: "",
-    lastName: "",
-    email: "",
-    password: "",
-    phone: "",
-    website: "",
-  })
-  const [errors, setErrors] = React.useState<FormErrors>({})
-  const [isSubmitting, setIsSubmitting] = React.useState(false)
-  const [showPassword, setShowPassword] = React.useState(false)
-  const [apiError, setApiError] = React.useState<string | null>(null)
-  const [slugManuallyEdited, setSlugManuallyEdited] = React.useState(false)
+  const handleOrgNameChange = (value: string, onChange: (v: string) => void) => {
+    onChange(value)
+    if (!slugManuallyEdited) {
+      form.setValue("organizationSlug", generateSlug(value), { shouldValidate: false })
+    }
+  }
 
-  const passwordValidation = validatePassword(formData.password)
-  const isPasswordValid = passwordValidation.minLength && passwordValidation.hasNumber && passwordValidation.hasSpecial
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-
-    setFormData((prev) => {
-      const newData = { ...prev, [name]: value }
-
-      // Auto-generate slug from org name if not manually edited
-      if (name === "organizationName" && !slugManuallyEdited) {
-        newData.organizationSlug = generateSlug(value)
+  const onSubmit = (values: SignupFormValues) => {
+    signup.mutate(
+      {
+        name: values.organizationName,
+        slug: values.organizationSlug,
+        email: values.email,
+        password: values.password,
+        first_Name: values.firstName,
+        last_Name: values.lastName,
+        phone: values.phone || undefined,
+        website: values.website || undefined,
+      },
+      {
+        onSuccess: (data) => {
+          sendOtp.mutate(data.email, {
+            onSuccess: () => {
+              sessionStorage.setItem("auth_email", data.email)
+              router.push("/verify-otp")
+            },
+          })
+        },
       }
-
-      return newData
-    })
-
-    // Clear error when user starts typing
-    if (errors[name as keyof FormErrors]) {
-      setErrors((prev) => ({ ...prev, [name]: undefined }))
-    }
-    setApiError(null)
+    )
   }
 
-  const handleSlugChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")
-    setFormData((prev) => ({ ...prev, organizationSlug: value }))
-    setSlugManuallyEdited(true)
-    if (errors.organizationSlug) {
-      setErrors((prev) => ({ ...prev, organizationSlug: undefined }))
-    }
-  }
-
-  const validateForm = (): boolean => {
-    const newErrors: FormErrors = {}
-
-    if (!formData.organizationName.trim()) {
-      newErrors.organizationName = "Organization name is required"
-    }
-
-    if (!formData.organizationSlug.trim()) {
-      newErrors.organizationSlug = "Organization slug is required"
-    } else if (!/^[a-z0-9-]+$/.test(formData.organizationSlug)) {
-      newErrors.organizationSlug = "Slug can only contain lowercase letters, numbers, and hyphens"
-    }
-
-    if (!formData.firstName.trim()) {
-      newErrors.firstName = "First name is required"
-    }
-
-    if (!formData.lastName.trim()) {
-      newErrors.lastName = "Last name is required"
-    }
-
-    if (!formData.email.trim()) {
-      newErrors.email = "Email is required"
-    } else if (!validateEmail(formData.email)) {
-      newErrors.email = "Please enter a valid email address"
-    }
-
-    if (!formData.password) {
-      newErrors.password = "Password is required"
-    } else if (!isPasswordValid) {
-      newErrors.password = "Password does not meet requirements"
-    }
-
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    if (!validateForm()) {
-      return
-    }
-
-    setIsSubmitting(true)
-    setApiError(null)
-
-    try {
-      const response = await api.signup({
-        organizationName: formData.organizationName,
-        organizationSlug: formData.organizationSlug,
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email,
-        password: formData.password,
-        phone: formData.phone || undefined,
-        website: formData.website || undefined,
-      })
-
-      if (response.success) {
-        // JWT is stored in HttpOnly cookie by the server
-        const redirectTo = response.data?.redirectTo || "/wizard"
-        router.push(redirectTo)
-      } else {
-        setApiError(response.error?.message || "An error occurred during signup")
-      }
-    } catch {
-      setApiError("An unexpected error occurred. Please try again.")
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
+  const isLoading = signup.isPending || sendOtp.isPending
+  const apiError =
+    (signup.isError && signup.error instanceof Error ? signup.error.message : null) ??
+    (sendOtp.isError && sendOtp.error instanceof Error ? sendOtp.error.message : null)
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
@@ -201,241 +126,225 @@ export default function SignupPage() {
           </div>
         </CardHeader>
 
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-6">
-            {apiError && (
-              <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm">
-                {apiError}
-              </div>
-            )}
-
-            {/* Organization Section */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium text-muted-foreground">Organization</h3>
-
-              <div className="space-y-2">
-                <Label htmlFor="organizationName">
-                  Organization Name <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="organizationName"
-                  name="organizationName"
-                  value={formData.organizationName}
-                  onChange={handleChange}
-                  placeholder="Acme Inc."
-                  className={errors.organizationName ? "border-destructive" : ""}
-                />
-                {errors.organizationName && (
-                  <p className="text-xs text-destructive">{errors.organizationName}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="organizationSlug">
-                  Organization Slug <span className="text-destructive">*</span>
-                </Label>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">boostmydeal.com/</span>
-                  <Input
-                    id="organizationSlug"
-                    name="organizationSlug"
-                    value={formData.organizationSlug}
-                    onChange={handleSlugChange}
-                    placeholder="acme-inc"
-                    className={`flex-1 ${errors.organizationSlug ? "border-destructive" : ""}`}
-                  />
-                </div>
-                {errors.organizationSlug && (
-                  <p className="text-xs text-destructive">{errors.organizationSlug}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Auto-generated from organization name. You can edit it manually.
-                </p>
-              </div>
-            </div>
-
-            {/* Personal Info Section */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium text-muted-foreground">Personal Information</h3>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName">
-                    First Name <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="firstName"
-                    name="firstName"
-                    value={formData.firstName}
-                    onChange={handleChange}
-                    placeholder="John"
-                    className={errors.firstName ? "border-destructive" : ""}
-                  />
-                  {errors.firstName && (
-                    <p className="text-xs text-destructive">{errors.firstName}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="lastName">
-                    Last Name <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="lastName"
-                    name="lastName"
-                    value={formData.lastName}
-                    onChange={handleChange}
-                    placeholder="Doe"
-                    className={errors.lastName ? "border-destructive" : ""}
-                  />
-                  {errors.lastName && (
-                    <p className="text-xs text-destructive">{errors.lastName}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="email">
-                  Email <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder="john@acme.com"
-                  className={errors.email ? "border-destructive" : ""}
-                />
-                {errors.email && (
-                  <p className="text-xs text-destructive">{errors.email}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">
-                  Password <span className="text-destructive">*</span>
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    value={formData.password}
-                    onChange={handleChange}
-                    placeholder="Create a strong password"
-                    className={`pr-10 ${errors.password ? "border-destructive" : ""}`}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <Eye className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </Button>
-                </div>
-                {errors.password && (
-                  <p className="text-xs text-destructive">{errors.password}</p>
-                )}
-
-                {/* Password Requirements */}
-                <div className="mt-2 space-y-1">
-                  <div className="flex items-center gap-2 text-xs">
-                    {passwordValidation.minLength ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                    ) : (
-                      <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                    <span className={passwordValidation.minLength ? "text-green-600" : "text-muted-foreground"}>
-                      At least 6 characters
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    {passwordValidation.hasNumber ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                    ) : (
-                      <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                    <span className={passwordValidation.hasNumber ? "text-green-600" : "text-muted-foreground"}>
-                      At least 1 number
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    {passwordValidation.hasSpecial ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                    ) : (
-                      <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                    <span className={passwordValidation.hasSpecial ? "text-green-600" : "text-muted-foreground"}>
-                      At least 1 special character (!@#$%^&amp;*(),.?&quot;:{"{}"})
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Optional Fields Section */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium text-muted-foreground">Optional</h3>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input
-                    id="phone"
-                    name="phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    placeholder="+1 (555) 123-4567"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="website">Website</Label>
-                  <Input
-                    id="website"
-                    name="website"
-                    type="url"
-                    value={formData.website}
-                    onChange={handleChange}
-                    placeholder="https://acme.com"
-                  />
-                </div>
-              </div>
-            </div>
-          </CardContent>
-
-          <CardFooter className="flex flex-col gap-4">
-            <Button
-              type="submit"
-              className="w-full bg-primary hover:bg-primary/90"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating account...
-                </>
-              ) : (
-                "Create Account"
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <CardContent className="space-y-6">
+              {apiError && (
+                <Alert variant="destructive" className="py-2">
+                  <AlertDescription>{apiError}</AlertDescription>
+                </Alert>
               )}
-            </Button>
 
-            <p className="text-center text-sm text-muted-foreground">
-              Already have an account?{" "}
-              <Link href="/login" className="text-primary hover:underline font-medium">
-                Sign in
-              </Link>
-            </p>
-          </CardFooter>
-        </form>
+              {/* Organization */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground">Organization</h3>
+
+                <FormField
+                  control={form.control}
+                  name="organizationName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Organization Name <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Acme Inc."
+                          {...field}
+                          onChange={(e) => handleOrgNameChange(e.target.value, field.onChange)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="organizationSlug"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Organization Slug <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">boostmydeal.com/</span>
+                          <Input
+                            placeholder="acme-inc"
+                            className="flex-1"
+                            {...field}
+                            onChange={(e) => {
+                              const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")
+                              field.onChange(value)
+                              setSlugManuallyEdited(true)
+                            }}
+                          />
+                        </div>
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">Auto-generated from organization name. You can edit it manually.</p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Personal Info */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground">Personal Information</h3>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="firstName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>First Name <span className="text-destructive">*</span></FormLabel>
+                        <FormControl>
+                          <Input placeholder="John" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="lastName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Last Name <span className="text-destructive">*</span></FormLabel>
+                        <FormControl>
+                          <Input placeholder="Doe" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <Input type="email" placeholder="john@acme.com" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input
+                            type={showPassword ? "text" : "password"}
+                            placeholder="Create a strong password"
+                            className="pr-10"
+                            {...field}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? (
+                              <EyeOff className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <Eye className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </Button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                      <div className="mt-2 space-y-1">
+                        {[
+                          { ok: passwordValidation.minLength, label: "At least 6 characters" },
+                          { ok: passwordValidation.hasNumber, label: "At least 1 number" },
+                          { ok: passwordValidation.hasSpecial, label: 'At least 1 special character (!@#$%^&*(),.?":{}|<>)' },
+                        ].map(({ ok, label }) => (
+                          <div key={label} className="flex items-center gap-2 text-xs">
+                            {ok ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                            )}
+                            <span className={ok ? "text-green-600" : "text-muted-foreground"}>{label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Optional */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground">Optional</h3>
+
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <FormField
+                    control={form.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Phone</FormLabel>
+                        <FormControl>
+                          <Input type="tel" placeholder="+1 (555) 123-4567" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="website"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Website</FormLabel>
+                        <FormControl>
+                          <Input type="url" placeholder="https://acme.com" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            </CardContent>
+
+            <CardFooter className="flex flex-col gap-4">
+              <Button
+                type="submit"
+                className="w-full bg-primary hover:bg-primary/90"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {signup.isPending ? "Creating account..." : "Sending code..."}
+                  </>
+                ) : (
+                  "Create Account"
+                )}
+              </Button>
+
+              <p className="text-center text-sm text-muted-foreground">
+                Already have an account?{" "}
+                <Link href="/login" className="text-primary hover:underline font-medium">
+                  Sign in
+                </Link>
+              </p>
+            </CardFooter>
+          </form>
+        </Form>
       </Card>
     </div>
   )

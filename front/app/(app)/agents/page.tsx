@@ -183,7 +183,7 @@ function calculateStats(agents: AIAgent[]) {
   // Mock call data
   const callsToday = 234
   const avgSuccessRate = 76
-  
+
   return { total, active, callsToday, avgSuccessRate }
 }
 
@@ -265,10 +265,10 @@ export default function AgentsPage() {
 
   const handleFormSubmit = async (data: AgentFormData) => {
     setIsLoading(true)
-    
+
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 1000))
-    
+
     if (editingAgent) {
       // Update existing agent
       setAgents(agents.map(agent => {
@@ -295,7 +295,7 @@ export default function AgentsPage() {
       }
       setAgents([...agents, newAgent])
     }
-    
+
     setIsLoading(false)
     setIsFormOpen(false)
     setEditingAgent(undefined)
@@ -426,7 +426,7 @@ export default function AgentsPage() {
                       Duplicate
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem 
+                    <DropdownMenuItem
                       className="text-destructive"
                       onClick={() => handleDeleteAgent(agent)}
                     >
@@ -449,13 +449,13 @@ export default function AgentsPage() {
                 <div>
                   <p className="text-muted-foreground">Voice</p>
                   <p className="font-medium capitalize">
-                    {agent.modelProvider === "Gemini Live" 
-                      ? agent.geminiLiveVoice 
+                    {agent.modelProvider === "Gemini Live"
+                      ? agent.geminiLiveVoice
                       : agent.voice || "Not set"}
                   </p>
                 </div>
               </div>
-              
+
               <div className="flex flex-wrap gap-1">
                 {agent.systemTags.slice(0, 3).map(tag => (
                   <Badge key={tag} variant="outline" className="text-xs capitalize">
@@ -468,7 +468,7 @@ export default function AgentsPage() {
                   </Badge>
                 )}
               </div>
-              
+
               <div className="flex items-center justify-between pt-2 border-t">
                 <div className="flex items-center gap-2">
                   <Switch

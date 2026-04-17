@@ -9,7 +9,7 @@ import { queryKey } from "../lib/query-keys"
 export const useNotifications = (params?: { read?: boolean; page?: number; limit?: number }) => {
   return useQuery({
     queryKey: queryKey.Notifications.all(params?.page || 1),
-    queryFn: () => api.get("/notifications", { ...params }),
+    queryFn: () => api.get("/notifications", { params }),
   })
 }
 

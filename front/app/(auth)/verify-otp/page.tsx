@@ -3,31 +3,37 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { z } from "zod"
 import { Logo } from "@/components/ui/logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Spinner } from "@/components/ui/spinner"
-import { api } from "@/lib/api/api"
+import { useVerifyOtp, useSendOtp } from "@/hooks/use-auth"
 import { ArrowLeft, AlertCircle, RefreshCw, CheckCircle } from "lucide-react"
 
 const OTP_LENGTH = 6
-const RESEND_COOLDOWN = 60 // seconds
+const RESEND_COOLDOWN = 60
+
+const otpSchema = z
+  .string()
+  .length(OTP_LENGTH, "Please enter the complete verification code")
+  .regex(/^\d+$/, "Code must contain digits only")
 
 export default function VerifyOtpPage() {
   const router = useRouter()
   const [otp, setOtp] = useState<string[]>(new Array(OTP_LENGTH).fill(""))
   const [email, setEmail] = useState<string>("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [isResending, setIsResending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
   const [resendCooldown, setResendCooldown] = useState(0)
   const [resendSuccess, setResendSuccess] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
+  const verifyOtp = useVerifyOtp()
+  const sendOtp = useSendOtp()
+
   useEffect(() => {
-    // Get email from sessionStorage
     const storedEmail = sessionStorage.getItem("auth_email")
     if (!storedEmail) {
       router.push("/login")
@@ -37,28 +43,48 @@ export default function VerifyOtpPage() {
   }, [router])
 
   useEffect(() => {
-    // Countdown timer for resend cooldown
     if (resendCooldown > 0) {
       const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000)
       return () => clearTimeout(timer)
     }
   }, [resendCooldown])
 
+  const handleVerify = (otpCode: string) => {
+    const result = otpSchema.safeParse(otpCode)
+    if (!result.success) {
+      setValidationError(result.error.errors[0].message)
+      return
+    }
+    setValidationError(null)
+
+    verifyOtp.mutate(
+      { email, otp: otpCode },
+      {
+        onSuccess: (data) => {
+          sessionStorage.setItem("auth_tenants", JSON.stringify(data.tenants))
+          router.push("/select-organization")
+        },
+        onError: () => {
+          setOtp(new Array(OTP_LENGTH).fill(""))
+          inputRefs.current[0]?.focus()
+        },
+      }
+    )
+  }
+
   const handleChange = (index: number, value: string) => {
-    if (!/^\d*$/.test(value)) return // Only allow digits
+    if (!/^\d*$/.test(value)) return
 
     const newOtp = [...otp]
-    newOtp[index] = value.slice(-1) // Only take last character
+    newOtp[index] = value.slice(-1)
     setOtp(newOtp)
-    setError(null)
+    setValidationError(null)
     setResendSuccess(false)
 
-    // Auto-focus next input
     if (value && index < OTP_LENGTH - 1) {
       inputRefs.current[index + 1]?.focus()
     }
 
-    // Auto-submit when all digits are entered
     if (newOtp.every((digit) => digit !== "") && newOtp.join("").length === OTP_LENGTH) {
       handleVerify(newOtp.join(""))
     }
@@ -77,83 +103,45 @@ export default function VerifyOtpPage() {
     if (pastedData) {
       const newOtp = [...otp]
       pastedData.split("").forEach((char, index) => {
-        if (index < OTP_LENGTH) {
-          newOtp[index] = char
-        }
+        if (index < OTP_LENGTH) newOtp[index] = char
       })
       setOtp(newOtp)
 
-      // Focus the next empty input or the last input
       const nextEmptyIndex = newOtp.findIndex((digit) => digit === "")
       if (nextEmptyIndex !== -1) {
         inputRefs.current[nextEmptyIndex]?.focus()
       } else {
         inputRefs.current[OTP_LENGTH - 1]?.focus()
-        // Auto-submit if all filled
         handleVerify(newOtp.join(""))
       }
     }
   }
 
-  const handleVerify = async (otpCode: string) => {
-    if (otpCode.length !== OTP_LENGTH) {
-      setError("Please enter the complete verification code")
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const response = await api.verifyOtp(email, otpCode)
-
-      if (response.success && response.data?.tempToken) {
-        // Store temp token for organization selection
-        sessionStorage.setItem("auth_temp_token", response.data.tempToken)
-        router.push("/select-organization")
-      } else {
-        setError(response.error?.message || "Invalid verification code. Please try again.")
-        setOtp(new Array(OTP_LENGTH).fill(""))
-        inputRefs.current[0]?.focus()
-      }
-    } catch {
-      setError("An unexpected error occurred. Please try again.")
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleResend = async () => {
-    if (resendCooldown > 0 || isResending) return
-
-    setIsResending(true)
-    setError(null)
+  const handleResend = () => {
+    if (resendCooldown > 0 || sendOtp.isPending) return
     setResendSuccess(false)
+    setValidationError(null)
 
-    try {
-      const response = await api.resendOtp(email)
-
-      if (response.success) {
+    sendOtp.mutate(email, {
+      onSuccess: () => {
         setResendSuccess(true)
         setResendCooldown(RESEND_COOLDOWN)
         setOtp(new Array(OTP_LENGTH).fill(""))
         inputRefs.current[0]?.focus()
-      } else {
-        setError(response.error?.message || "Failed to resend code. Please try again.")
-      }
-    } catch {
-      setError("An unexpected error occurred. Please try again.")
-    } finally {
-      setIsResending(false)
-    }
+      },
+    })
   }
 
   const maskedEmail = email ? email.replace(/(.{2})(.*)(@.*)/, "$1***$3") : ""
 
+  const errorMessage =
+    validationError ??
+    (verifyOtp.isError && verifyOtp.error instanceof Error ? verifyOtp.error.message : null) ??
+    (sendOtp.isError && sendOtp.error instanceof Error ? sendOtp.error.message : null)
+
   return (
     <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="flex justify-center mb-8">
           <Logo size="lg" />
         </div>
@@ -168,10 +156,10 @@ export default function VerifyOtpPage() {
           </CardHeader>
 
           <CardContent className="space-y-6">
-            {error && (
+            {errorMessage && (
               <Alert variant="destructive" className="py-2">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription>{errorMessage}</AlertDescription>
               </Alert>
             )}
 
@@ -182,7 +170,6 @@ export default function VerifyOtpPage() {
               </Alert>
             )}
 
-            {/* OTP Input */}
             <div className="flex justify-center gap-2">
               {otp.map((digit, index) => (
                 <Input
@@ -196,21 +183,19 @@ export default function VerifyOtpPage() {
                   onKeyDown={(e) => handleKeyDown(index, e)}
                   onPaste={handlePaste}
                   className="w-12 h-14 text-center text-2xl font-semibold"
-                  disabled={isLoading}
+                  disabled={verifyOtp.isPending}
                   autoFocus={index === 0}
                 />
               ))}
             </div>
 
-            {/* Loading indicator */}
-            {isLoading && (
+            {verifyOtp.isPending && (
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                 <Spinner className="h-4 w-4" />
                 <span>Verifying...</span>
               </div>
             )}
 
-            {/* Resend */}
             <div className="text-center">
               <p className="text-sm text-muted-foreground mb-2">
                 {"Didn't receive the code?"}
@@ -218,10 +203,10 @@ export default function VerifyOtpPage() {
               <Button
                 variant="ghost"
                 onClick={handleResend}
-                disabled={resendCooldown > 0 || isResending}
+                disabled={resendCooldown > 0 || sendOtp.isPending}
                 className="text-primary"
               >
-                {isResending ? (
+                {sendOtp.isPending ? (
                   <>
                     <Spinner className="mr-2 h-4 w-4" />
                     Sending...
@@ -240,7 +225,6 @@ export default function VerifyOtpPage() {
               </Button>
             </div>
 
-            {/* Back to login */}
             <div className="pt-4 border-t">
               <Link href="/login">
                 <Button variant="ghost" className="w-full">

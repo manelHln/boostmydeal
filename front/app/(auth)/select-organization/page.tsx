@@ -8,121 +8,58 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Spinner } from "@/components/ui/spinner"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { api } from "@/lib/api/api"
-import { ArrowLeft, AlertCircle, Building2, Users, ChevronRight, Plus } from "lucide-react"
-
-interface Organization {
-  id: string
-  name: string
-  slug: string
-  logo?: string
-  role: string
-  memberCount: number
-}
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { useLogin, type Tenant } from "@/hooks/use-auth"
+import { ArrowLeft, AlertCircle, Building2, ChevronRight, Plus } from "lucide-react"
 
 export default function SelectOrganizationPage() {
   const router = useRouter()
-  const [organizations, setOrganizations] = useState<Organization[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [tenants, setTenants] = useState<Tenant[]>([])
   const [isSelecting, setIsSelecting] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [tempToken, setTempToken] = useState<string>("")
+
+  const login = useLogin()
 
   useEffect(() => {
-    const storedToken = sessionStorage.getItem("auth_temp_token")
-    if (!storedToken) {
+    const stored = sessionStorage.getItem("auth_tenants")
+    if (!stored) {
       router.push("/login")
       return
     }
-    setTempToken(storedToken)
-    fetchOrganizations(storedToken)
-  }, [router])
+    const parsed: Tenant[] = JSON.parse(stored)
+    setTenants(parsed)
 
-  const fetchOrganizations = async (token: string) => {
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const response = await api.getUserOrganizations(token)
-
-      if (response.success && response.data?.organizations) {
-        setOrganizations(response.data.organizations)
-
-        // If only one organization, auto-select it
-        if (response.data.organizations.length === 1) {
-          handleSelectOrganization(response.data.organizations[0].id, token)
-        }
-      } else {
-        setError(response.error?.message || "Failed to load organizations")
-      }
-    } catch {
-      setError("An unexpected error occurred. Please try again.")
-    } finally {
-      setIsLoading(false)
+    if (parsed.length === 1) {
+      handleSelect(parsed[0].id)
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  const handleSelectOrganization = async (organizationId: string, token?: string) => {
-    const authToken = token || tempToken
-    setIsSelecting(organizationId)
-    setError(null)
+  const handleSelect = (tenantId: string) => {
+    setIsSelecting(tenantId)
 
-    try {
-      const response = await api.selectOrganization(authToken, organizationId)
-
-      if (response.success && response.data) {
-        // Clear temp auth data
+    login.mutate(tenantId, {
+      onSuccess: () => {
         sessionStorage.removeItem("auth_email")
-        sessionStorage.removeItem("auth_temp_token")
-
-        // Check onboarding status and redirect accordingly
-        const { onboarding, redirectTo } = response.data
-
-        if (redirectTo) {
-          router.push(redirectTo)
-        } else if (onboarding && !onboarding.completed) {
-          // Redirect to wizard with the current step
-          const step = onboarding.currentStep || 0
-          router.push(step > 0 ? `/wizard?step=${step}` : "/wizard")
-        } else {
-          router.push("/dashboard")
-        }
-      } else {
-        setError(response.error?.message || "Failed to select organization")
+        sessionStorage.removeItem("auth_tenants")
+        router.push("/dashboard")
+      },
+      onError: () => {
         setIsSelecting(null)
-      }
-    } catch {
-      setError("An unexpected error occurred. Please try again.")
-      setIsSelecting(null)
-    }
+      },
+    })
   }
 
-  const getInitials = (name: string) => {
-    return name
+  const getInitials = (name: string) =>
+    name
       .split(" ")
-      .map((word) => word[0])
+      .map((w) => w[0])
       .join("")
       .toUpperCase()
       .slice(0, 2)
-  }
-
-  const getRoleBadgeVariant = (role: string) => {
-    switch (role.toLowerCase()) {
-      case "owner":
-        return "default"
-      case "admin":
-        return "secondary"
-      default:
-        return "outline"
-    }
-  }
 
   return (
     <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
-        {/* Logo */}
         <div className="flex justify-center mb-8">
           <Logo size="lg" />
         </div>
@@ -136,19 +73,18 @@ export default function SelectOrganizationPage() {
           </CardHeader>
 
           <CardContent className="space-y-4">
-            {error && (
+            {login.isError && (
               <Alert variant="destructive" className="py-2">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription>
+                  {login.error instanceof Error
+                    ? login.error.message
+                    : "Failed to select workspace. Please try again."}
+                </AlertDescription>
               </Alert>
             )}
 
-            {isLoading ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-4">
-                <Spinner className="h-8 w-8 text-primary" />
-                <p className="text-muted-foreground">Loading workspaces...</p>
-              </div>
-            ) : organizations.length === 0 ? (
+            {tenants.length === 0 ? (
               <div className="text-center py-12">
                 <Building2 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="font-semibold text-lg mb-2">No workspaces found</h3>
@@ -165,41 +101,26 @@ export default function SelectOrganizationPage() {
             ) : (
               <>
                 <div className="space-y-2">
-                  {organizations.map((org) => (
+                  {tenants.map((tenant) => (
                     <button
-                      key={org.id}
-                      onClick={() => handleSelectOrganization(org.id)}
+                      key={tenant.id}
+                      onClick={() => handleSelect(tenant.id)}
                       disabled={isSelecting !== null}
                       className="w-full flex items-center gap-4 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Avatar className="h-12 w-12">
-                        {org.logo ? (
-                          <AvatarImage src={org.logo} alt={org.name} />
-                        ) : null}
                         <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                          {getInitials(org.name)}
+                          {getInitials(tenant.name)}
                         </AvatarFallback>
                       </Avatar>
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold truncate">{org.name}</h3>
-                          <Badge variant={getRoleBadgeVariant(org.role)} className="text-xs capitalize">
-                            {org.role}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span className="truncate">{org.slug}</span>
-                          <span>•</span>
-                          <span className="flex items-center gap-1">
-                            <Users className="h-3 w-3" />
-                            {org.memberCount} {org.memberCount === 1 ? "member" : "members"}
-                          </span>
-                        </div>
+                        <h3 className="font-semibold truncate">{tenant.name}</h3>
+                        <p className="text-sm text-muted-foreground truncate">{tenant.slug}</p>
                       </div>
 
                       <div className="flex-shrink-0">
-                        {isSelecting === org.id ? (
+                        {isSelecting === tenant.id ? (
                           <Spinner className="h-5 w-5 text-primary" />
                         ) : (
                           <ChevronRight className="h-5 w-5 text-muted-foreground" />
@@ -220,7 +141,6 @@ export default function SelectOrganizationPage() {
               </>
             )}
 
-            {/* Back to login */}
             <div className="pt-4 border-t">
               <Link href="/login">
                 <Button variant="ghost" className="w-full">
