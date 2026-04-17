@@ -1,0 +1,179 @@
+services:
+  nextjs:
+    container_name: nextjs-app
+    build: ./front
+    restart: always
+    volumes:
+      - .:/front/app
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./front/.env
+    networks:
+      - app-network
+
+  laravel.test:
+    build:
+      context: ./dashboard_backend/vendor/laravel/sail/runtimes/8.5
+      dockerfile: Dockerfile
+      args:
+        WWWGROUP: "${WWWGROUP}"
+    image: sail-8.5/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${APP_PORT:-8080}:80"
+      - "${VITE_PORT:-5173}:${VITE_PORT:-5173}"
+    env_file:
+        - ./dashboard_backend/.env
+    volumes:
+      - "./dashboard_backend:/var/www/html"
+      - "./dashboard_backend/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf"
+    networks:
+      - app-network
+    depends_on:
+      - pgsql
+      - redis
+      - typesense
+      - minio
+
+  # PostgreSQL Database
+  pgsql:
+    image: "postgres:18-alpine"
+    ports:
+      - "${FORWARD_DB_PORT:-5432}:5432"
+    environment:
+      PGPASSWORD: "${DB_PASSWORD:-secret}"
+      POSTGRES_DB: "${DB_DATABASE:-laravel}"
+      POSTGRES_USER: "${DB_USERNAME:-sail}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-secret}"
+    volumes:
+      - sail-pgsql:/var/lib/postgresql
+      - "./dashboard_backend/vendor/laravel/sail/database/pgsql/create-testing-database.sql:/docker-entrypoint-initdb.d/10-create-testing-database.sql"
+    networks:
+      - app-network
+    healthcheck:
+      test:
+        - CMD
+        - pg_isready
+        - "-q"
+        - "-d"
+        - "${DB_DATABASE:-laravel}"
+        - "-U"
+        - "${DB_USERNAME:-sail}"
+      retries: 3
+      timeout: 5s
+
+  # Redis Cache & Queue
+  redis:
+    image: "redis:alpine"
+    ports:
+      - "${FORWARD_REDIS_PORT:-6379}:6379"
+    volumes:
+      - sail-redis:/data
+    networks:
+      - app-network
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      retries: 3
+      timeout: 5s
+
+  # Typesense Search
+  typesense:
+    image: "typesense/typesense:27.1"
+    ports:
+      - "${FORWARD_TYPESENSE_PORT:-8108}:8108"
+    environment:
+      TYPESENSE_DATA_DIR: "${TYPESENSE_DATA_DIR:-/typesense-data}"
+      TYPESENSE_API_KEY: "${TYPESENSE_API_KEY:-xyz}"
+      TYPESENSE_ENABLE_CORS: "${TYPESENSE_ENABLE_CORS:-true}"
+    volumes:
+      - sail-typesense:/typesense-data
+    networks:
+      - app-network
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - "-c"
+        - 'exec 3<>/dev/tcp/localhost/8108 && printf "GET /health HTTP/1.1\r\nConnection: close\r\n\r\n" >&3 && head -n1 <&3 | grep "200" && exec 3>&-'
+      retries: 5
+      timeout: 7s
+
+  # Minio Object Storage
+  minio:
+    image: "minio/minio:latest"
+    ports:
+      - "${FORWARD_MINIO_PORT:-9000}:9000"
+      - "${FORWARD_MINIO_CONSOLE_PORT:-8900}:8900"
+    environment:
+      MINIO_ROOT_USER: sail
+      MINIO_ROOT_PASSWORD: password
+    volumes:
+      - sail-minio:/data
+    networks:
+      - app-network
+    command: 'minio server /data --console-address ":8900"'
+    healthcheck:
+      test:
+        - CMD
+        - mc
+        - ready
+        - local
+      retries: 3
+      timeout: 5s
+
+  # LiveKit Voice Agent (Worker)
+  livekit-agent-worker:
+    build:
+      context: ./livekit-voice-agent
+      dockerfile: Dockerfile
+    image: livekit-agent:latest
+    restart: unless-stopped
+    command: ["uv", "run", "src/agent.py", "start"]
+    env_file:
+      - ./livekit-voice-agent/.env.local
+    networks:
+      - app-network
+
+  # LiveKit FastAPI Server (HTTP API)
+  livekit-api:
+    build:
+      context: ./livekit-voice-agent
+      dockerfile: Dockerfile
+    image: livekit-agent:latest
+    restart: unless-stopped
+    ports:
+      - "${LIVEKIT_API_PORT:-8000}:8000"
+    command:
+      [
+        "uv",
+        "run",
+        "uvicorn",
+        "src.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+    env_file:
+      - ./livekit-voice-agent/.env.local
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  sail-pgsql:
+    driver: local
+  sail-redis:
+    driver: local
+  sail-typesense:
+    driver: local
+  sail-minio:
+    driver: local
